@@ -9,9 +9,12 @@ export function checkAndConsume(userId, nowMs = Date.now()) {
     ent.ts = nowMs;
     ent.cnt = 0;
   }
-  ent.cnt += 1;
+  
+  const ok = ent.cnt < RATE;
+  if (ok) {
+    ent.cnt += 1;
+  }
   buckets.set(userId, ent);
-  const ok = ent.cnt <= RATE;
   const resetMs = ent.ts + WINDOW_MS;
   const remaining = Math.max(RATE - ent.cnt, 0);
   return { ok, remaining, resetMs };

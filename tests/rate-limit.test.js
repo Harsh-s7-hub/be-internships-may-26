@@ -6,21 +6,25 @@ import http from 'node:http';
 
 test('rate limit: allow 5 per minute, 6th is 429', async () => {
   const proc = spawn('node', ['src/server.js'], { env: { ...process.env, API_KEY: 'k', PORT: '9092', RATE_LIMIT_PER_MIN: '5' } });
-  await wait(300);
+  await wait(1500);
 
-  const base = 'http://localhost:9092';
-  const statuses = [];
-  for (let i=0;i<6;i++){
-    const code = await postStatus(`${base}/v1/signals`, {
-      headers: { 'x-api-key': 'k' },
-      body: { userId: 'u1', type: 'note', payload: String(i) }
-    });
-    statuses.push(code);
+  try {
+    const base = 'http://localhost:9092';
+    const statuses = [];
+    for (let i=0;i<6;i++){
+      const code = await postStatus(`${base}/v1/signals`, {
+        headers: { 'x-api-key': 'k' },
+        body: { userId: 'u1', type: 'note', payload: String(i) }
+      });
+      statuses.push(code);
+    }
+    const counts = statuses.reduce((acc,c)=> (acc[c]=(acc[c]||0)+1, acc), {});
+    assert.ok(counts[200] >= 5);
+    assert.ok(counts[429] >= 1);
+  } finally {
+    proc.kill();
+    await wait(100);
   }
-  const counts = statuses.reduce((acc,c)=> (acc[c]=(acc[c]||0)+1, acc), {});
-  assert.ok(counts[200] >= 5);
-  assert.ok(counts[429] >= 1);
-  proc.kill();
 });
 
 async function postStatus(url, { headers, body }){

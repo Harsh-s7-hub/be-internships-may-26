@@ -29,26 +29,50 @@ function maybeFail() {
   }
 }
 
-export function insertSignal(userId, type, payload, idemKey, nowMs) {
-  maybeFail();
-  const stmt = db.prepare(
-    'INSERT INTO signals (user_id, type, payload, idempotency_key, created_at) VALUES (?,?,?,?,?)'
-  );
-  return stmt.run(userId, type, String(payload), idemKey || null, nowMs);
+
+async function withRetry(fn, maxRetries = 3) {
+  let lastErr;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return fn();
+    } catch (e) {
+      lastErr = e;
+      if (attempt < maxRetries - 1) {
+        // exponential backoff with jitter: 50ms, 100ms, 200ms + jitter
+        const delay = (Math.pow(2, attempt) * 50) + Math.random() * 20;
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastErr;
 }
 
-export function getByIdemKey(idemKey) {
-  maybeFail();
-  const stmt = db.prepare(
-    'SELECT id, user_id as userId, type, payload, idempotency_key as idempotencyKey, created_at as createdAt FROM signals WHERE idempotency_key = ?'
-  );
-  return stmt.get(idemKey);
+export async function insertSignal(userId, type, payload, idemKey, nowMs) {
+  return withRetry(() => {
+    maybeFail();
+    const stmt = db.prepare(
+      'INSERT INTO signals (user_id, type, payload, idempotency_key, created_at) VALUES (?,?,?,?,?)'
+    );
+    return stmt.run(userId, type, String(payload), idemKey || null, nowMs);
+  });
 }
 
-export function listSignals(userId, limit) {
-  maybeFail();
-  const stmt = db.prepare(
-    'SELECT id, user_id as userId, type, payload, idempotency_key as idempotencyKey, created_at as createdAt FROM signals WHERE user_id = ? ORDER BY created_at DESC LIMIT ?'
-  );
-  return stmt.all(userId, limit);
+export async function getByIdemKey(idemKey) {
+  return withRetry(() => {
+    maybeFail();
+    const stmt = db.prepare(
+      'SELECT id, user_id as userId, type, payload, idempotency_key as idempotencyKey, created_at as createdAt FROM signals WHERE idempotency_key = ?'
+    );
+    return stmt.get(idemKey);
+  });
+}
+
+export async function listSignals(userId, limit) {
+  return withRetry(() => {
+    maybeFail();
+    const stmt = db.prepare(
+      'SELECT id, user_id as userId, type, payload, idempotency_key as idempotencyKey, created_at as createdAt FROM signals WHERE user_id = ? ORDER BY created_at DESC LIMIT ?'
+    );
+    return stmt.all(userId, limit);
+  });
 }
